@@ -1,0 +1,10 @@
+project_id = "medicine-cabinet-local"
+
+[functions.analyze-symptoms]
+verify_jwt = true
+
+[functions.family-auth]
+verify_jwt = false
+
+[functions.family-assistant]
+verify_jwt = true

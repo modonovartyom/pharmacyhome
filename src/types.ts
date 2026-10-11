@@ -1,0 +1,8 @@
+export type Household = {id:string; name:string; owner_id:string};
+export type Member = {household_id:string; user_id:string; role:'owner'|'admin'|'member'; display_name?:string};
+export type Medicine = {id:string;household_id:string;name:string;dosage:string|null;form:string|null;inn:string|null;categories:string[];indications:string[];instructions:string|null;contraindications:string|null;photo_path:string|null;favorite:boolean;created_by:string;needs_review:boolean;review_note:string|null;source_text:string|null;source_id:number|null;info_summary?:string|null;info_sources?:{title:string;url:string}[];info_checked_at?:string|null;reference_image_url?:string|null};
+export type Batch = {id:string;household_id:string;medicine_id:string;initial_quantity:number;quantity:number;quantity_unknown:boolean;unit:string;expires_on:string|null;expiry_precision:string|null;storage_location:string|null;notes:string|null};
+export type Usage = {id:string;household_id:string;medicine_id:string;inventory_batch_id:string|null;quantity:number;unit:string;used_by:string;used_at:string;note:string|null};
+export type ShoppingItem = {id:string;household_id:string;medicine_id:string|null;title:string;desired_quantity:number|null;unit:string|null;status:'needed'|'ordered'|'purchased'|'dismissed'};
+export type Inventory = Medicine & {batches:Batch[];total:number;nextExpiry:string|null};
+export type ImportRow = {source_id:number;name:string;dosage:string|null;form:string|null;quantity:number|null;unit:string|null;expires_on:string|null;expiry_precision:string;storage_location:string;source_text:string;needs_review:boolean;source_status:string;review_note:string|null};
