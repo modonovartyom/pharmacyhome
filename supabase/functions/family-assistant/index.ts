@@ -95,6 +95,11 @@ Deno.serve(async req => {
   if (!householdId) return json({ error: 'Не выбрана аптечка' }, 400);
   const { data: membership } = await db.from('household_members').select('user_id').eq('household_id', householdId).eq('user_id', user.id).maybeSingle();
   if (!membership) return json({ error: 'Нет доступа к аптечке' }, 403);
+  if (body.action === 'clear-chat') {
+    const { error: clearError } = await admin.from('chat_messages').delete().eq('household_id', householdId).eq('user_id', user.id);
+    if (clearError) return json({ error: 'Не удалось очистить историю чата' }, 500);
+    return json({ cleared: true });
+  }
   const { data: vaultKey } = await admin.rpc('read_family_openrouter_key');
   const key = Deno.env.get('OPENROUTER_API_KEY') || Deno.env.get('OPEN_ROUTER_API_KEY') || vaultKey;
   if (!key) return json({ error: 'ИИ-помощник пока не настроен' }, 503);

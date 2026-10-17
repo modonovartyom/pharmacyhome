@@ -5,7 +5,7 @@ import { Activity, ArrowLeft, ArrowRight, Bell, Camera, Check, ChevronRight, Cir
 import { client, configured } from './lib/supabase';
 import { expiryStatus, formatDate } from './lib/expiry';
 import * as api from './services/api';
-import { askAssistant, enterFamilyProfile, familyStatus, getChatMessages, getMarketPharmacies, researchMedicine, scanPackage, searchMarket } from './services/family';
+import { askAssistant, clearChatMessages, enterFamilyProfile, familyStatus, getChatMessages, getMarketPharmacies, researchMedicine, scanPackage, searchMarket } from './services/family';
 import type { ChatMessage, MarketPharmacy, Offer, Slot, Source } from './services/family';
 import type { ImportRow, Inventory, Usage } from './types';
 import inventorySeed from './data/inventory.json';
@@ -367,19 +367,21 @@ function ChatView({ user, householdId, items, medicineId, compact = false, sympt
   const [error, setError] = useState('');
   const [latestSources, setLatestSources] = useState<Source[]>([]);
   const [purchaseQuery, setPurchaseQuery] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const handledRequest = useRef<string | null>(null);
   useEffect(() => { if (householdId) void getChatMessages(householdId).then(setMessages).catch(e => setError((e as Error).message)); }, [householdId, user.id]);
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages, busy]);
   const sendMessage = useCallback(async (value: string) => {
-    const message = value.trim(); if (!message || busy) return;
+    const message = value.trim(); if (!message || busy || clearing) return;
     setDraft(''); setBusy(true); setError('');
     const temporary: ChatMessage = { id: crypto.randomUUID(), household_id: householdId, user_id: user.id, role: 'user', content: message, medicine_id: medicineId || null, created_at: new Date().toISOString() };
     setMessages(current => [...current, temporary]);
     try { const result = await askAssistant(householdId, message, medicineId); setLatestSources(result.sources); setPurchaseQuery(result.purchaseQuery); setMessages(await getChatMessages(householdId)); }
     catch (err) { setMessages(current => current.filter(m => m.id !== temporary.id)); setDraft(message.startsWith('Меня беспокоит:') ? message.split('.')[0] + '.' : message); setError((err as Error).message); }
     finally { setBusy(false); }
-  }, [busy, householdId, medicineId, user.id]);
+  }, [busy, clearing, householdId, medicineId, user.id]);
   useEffect(() => {
     if (!symptomRequest || handledRequest.current === symptomRequest.id) return;
     handledRequest.current = symptomRequest.id;
@@ -387,7 +389,23 @@ function ChatView({ user, householdId, items, medicineId, compact = false, sympt
     void sendMessage(`Меня беспокоит: ${symptomRequest.title.toLocaleLowerCase('ru')}. Сначала посмотри мою аптечку и кратко скажи, какие имеющиеся лекарства могут относиться к этой жалобе, не считая их автоматически подходящими или безопасными. Затем задай несколько важных уточняющих вопросов о симптомах, возрасте и противопоказаниях, чтобы подобрать безопасный следующий шаг.`);
   }, [symptomRequest, onSymptomHandled, sendMessage]);
   const send = (e: FormEvent) => { e.preventDefault(); void sendMessage(draft); };
-  return <div className={`family-chat ${compact ? 'compact' : ''}`}>{!compact && <><div className="sticky-view-header"><Header title="Советы помощника"/></div><div className="chat-intro"><AssistantAvatar/><div><strong>Личный помощник {user.user_metadata?.display_name || ''}</strong><p>Помогу разобраться в самочувствии и вашей домашней аптечке.</p></div></div></>}
+  useEffect(() => {
+    if (!confirmClear) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape' && !clearing) setConfirmClear(false); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [confirmClear, clearing]);
+  const clearChat = async () => {
+    if (busy || clearing) return;
+    setClearing(true); setError('');
+    try {
+      await clearChatMessages(householdId);
+      setMessages([]); setLatestSources([]); setPurchaseQuery(null); setDraft(''); setConfirmClear(false);
+    } catch (cause) { setError((cause as Error).message); setConfirmClear(false); }
+    finally { setClearing(false); }
+  };
+  const clearButton = <button className="chat-clear-button" type="button" onClick={() => setConfirmClear(true)} disabled={!messages.length || busy || clearing} aria-label="Очистить историю чата"><Trash2 size={17}/><span>Очистить</span></button>;
+  return <div className={`family-chat ${compact ? 'compact' : ''}`}>{!compact ? <><div className="sticky-view-header"><Header title="Советы помощника" action={clearButton}/></div><div className="chat-intro"><AssistantAvatar/><div><strong>Личный помощник {user.user_metadata?.display_name || ''}</strong><p>Помогу разобраться в самочувствии и вашей домашней аптечке.</p></div></div></> : <div className="chat-compact-actions">{clearButton}</div>}
     <div className="chat-messages">{messages.length === 0 && <div className="chat-empty"><span>✦</span><h2>О чём поговорим?</h2><p>Спросите о самочувствии или конкретном лекарстве. История остаётся только в этом профиле.</p><button onClick={() => setDraft('Что можно сделать при головной боли?')}>Головная боль</button><button onClick={() => setDraft('Расскажи, что есть в моей аптечке')}>Что есть дома?</button>{items.slice(0, 2).map(item => <button key={item.id} onClick={() => onMedicine(item)}>Посмотреть {item.name}</button>)}</div>}
       {messages.map((m, index) => <div key={m.id} className={`chat-bubble ${m.role}`}>{m.role === 'assistant' ? <AssistantAvatar/> : <span>{labelFor((family.find(p => p.name === user.user_metadata?.display_name)?.slot || null) as Slot | null).slice(0, 1)}</span>}{m.role === 'assistant' ? <AssistantAnswer content={m.content} buy={index === messages.length - 1 ? purchaseQuery : null} onBuy={onBuy}/> : <p>{m.content}</p>}</div>)}
       {busy && <div className="chat-bubble assistant thinking"><AssistantAvatar/><div className="thinking-stage"><div className="thinking-orbit"><HeartPulse size={22}/><i/><i/><i/></div><strong>Помощник разбирается в вопросе</strong><span>Сверяю сведения и вашу аптечку…</span><div className="thinking-progress"><i/></div></div></div>}
@@ -395,8 +413,9 @@ function ChatView({ user, householdId, items, medicineId, compact = false, sympt
       {error && <div className="chat-error"><CircleAlert size={17}/>{error}</div>}
       <div ref={end}/>
     </div>
-    <form className="chat-composer" onSubmit={e => void send(e)}><input value={draft} onChange={e => setDraft(e.target.value)} maxLength={2000} placeholder="Напишите, что вас беспокоит…" aria-label="Сообщение помощнику"/><button disabled={busy || !draft.trim()} aria-label="Отправить"><Send size={19}/></button></form>
+    <form className="chat-composer" onSubmit={e => void send(e)}><input value={draft} onChange={e => setDraft(e.target.value)} maxLength={2000} placeholder="Напишите, что вас беспокоит…" aria-label="Сообщение помощнику"/><button disabled={busy || clearing || !draft.trim()} aria-label="Отправить"><Send size={19}/></button></form>
     {!compact && <small className="chat-disclaimer">Советы носят справочный характер. При выборе лекарства уточните применение у врача или фармацевта.</small>}
+    {confirmClear && <div className="chat-clear-backdrop" onClick={() => { if (!clearing) setConfirmClear(false); }}><div className="chat-clear-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" onClick={event => event.stopPropagation()}><div className="chat-clear-icon"><Trash2 size={23}/></div><h2 id="clear-chat-title">Очистить чат?</h2><p>Все сообщения и память помощника для этого профиля будут удалены. Чаты других членов семьи останутся на месте.</p><div className="chat-clear-actions"><button type="button" onClick={() => setConfirmClear(false)} disabled={clearing}>Отмена</button><button type="button" onClick={() => void clearChat()} disabled={clearing}>{clearing ? 'Очищаем…' : 'Удалить историю'}</button></div></div></div>}
   </div>;
 }
 

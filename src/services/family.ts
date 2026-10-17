@@ -56,6 +56,10 @@ export async function getChatMessages(householdId: string): Promise<ChatMessage[
   return data || [];
 }
 
+export async function clearChatMessages(householdId: string): Promise<void> {
+  await invoke<{ cleared: boolean }>('family-assistant', { action: 'clear-chat', householdId });
+}
+
 export async function askAssistant(householdId: string, message: string, medicineId?: string) {
   return invoke<{ content: string; sources: Source[]; purchaseQuery: string | null }>('family-assistant', {
     action: 'chat', householdId, message, medicineId,
